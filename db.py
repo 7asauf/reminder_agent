@@ -17,16 +17,18 @@ OFFSETS = [
     ("1 day", timedelta(days=1)),
     ("2 hours", timedelta(hours=2)),
     ("30 minutes", timedelta(minutes=30)),
+    ("now", timedelta(0)),
 ]
 
 
 def save_event(ev):
     event_time = datetime.fromisoformat(ev["when"])
+    when_s = event_time.strftime("%Y-%m-%dT%H:%M")
     now = datetime.now(TZ).replace(tzinfo=None)
 
     cur = db.execute(
         "INSERT INTO events(title, when_at, location, notes) VALUES (?, ?, ?, ?)",
-        (ev["title"], ev["when"], ev["location"], ev["notes"]),
+        (ev["title"], when_s, ev["location"], ev["notes"]),
     )
     event_id = cur.lastrowid
 
@@ -35,7 +37,8 @@ def save_event(ev):
         remind_at = event_time - delta
         if remind_at <= now:
             continue  # that moment has already passed
-        text = f"⏰ In {label}: {ev['title']}"
+        prefix = "Now" if label == "now" else f"In {label}"
+        text = f"⏰ {prefix}: {ev['title']}"
         if ev["location"]:
             text += f" @ {ev['location']}"
         if ev["notes"]:
@@ -50,14 +53,16 @@ def save_event(ev):
 
 
 def due_reminders():
-    now = datetime.now(TZ).strftime("%Y-%m-%dT%H:%M")
+    now = datetime.now(TZ)
+    now_s = now.strftime("%Y-%m-%dT%H:%M")
+    cutoff = (now - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M")
     return db.execute(
         """SELECT r.id, r.text
            FROM reminders r JOIN events e ON e.id = r.event_id
-           WHERE r.sent = 0 AND r.remind_at <= ? AND e.when_at > ?""",
-        (now, now),
+           WHERE r.sent = 0 AND r.remind_at <= ?
+             AND (e.when_at > ? OR (r.remind_at = e.when_at AND e.when_at > ?))""",
+        (now_s, now_s, cutoff),
     ).fetchall()
-
 
 def mark_sent(reminder_id):
     db.execute("UPDATE reminders SET sent = 1 WHERE id = ?", (reminder_id,))
@@ -117,3 +122,10 @@ def events_on(day):
         "WHERE substr(when_at, 1, 10) = ? ORDER BY when_at",
         (day,),
     ).fetchall()
+
+
+def find_duplicate(title, when):
+    return db.execute(
+        "SELECT id FROM events WHERE when_at = ? AND lower(title) = lower(?)",
+        (when, title.strip()),
+    ).fetchone()

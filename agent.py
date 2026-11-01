@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from db import save_event, list_events, cancel_event, reschedule_event
+from db import find_duplicate
 
 load_dotenv()
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -15,9 +16,20 @@ TZ = ZoneInfo("Asia/Dhaka")
 # ---- Tools: ordinary Python functions the model may ask us to run ----
 
 def tool_add_event(title, when, location=None, notes=None):
+    when = datetime.fromisoformat(when).strftime("%Y-%m-%dT%H:%M")
+    dup = find_duplicate(title, when)
+    if dup:
+        return {
+            "status": "duplicate",
+            "event_id": dup[0],
+            "note": "An event with this title and time already exists. Nothing was added.",
+        }
     scheduled = save_event({"title": title, "when": when, "location": location, "notes": notes})
-    return {"status": "saved", "title": title, "when": when,
-            "reminders": [r.strftime("%Y-%m-%d %H:%M") for r in scheduled]}
+    result = {"status": "saved", "title": title, "when": when,
+              "reminders": [r.strftime("%Y-%m-%d %H:%M") for r in scheduled]}
+    if not scheduled:
+        result["warning"] = "No reminders were scheduled because the event time is already past or too close. Tell the user."
+    return result
 
 
 def tool_list_events():

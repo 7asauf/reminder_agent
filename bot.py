@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -13,16 +14,49 @@ API = f"https://api.telegram.org/bot{TOKEN}"
 
 
 def send(text):
-    requests.post(f"{API}/sendMessage", json={"chat_id": CHAT_ID, "text": text}, timeout=10)
+    try:
+        r = requests.post(
+            f"{API}/sendMessage",
+            json={"chat_id": CHAT_ID, "text": text},
+            timeout=10,
+        )
+        return r.ok
+    except requests.RequestException as e:
+        print("send failed:", e)
+        return False
+
+
+fail_since = None
+
+
+fail_since = None
 
 
 def get_updates(offset):
-    r = requests.get(
-        f"{API}/getUpdates",
-        params={"offset": offset, "timeout": 5},
-        timeout=15,
-    )
-    return r.json()["result"]
+    global fail_since
+    try:
+        r = requests.get(
+            f"{API}/getUpdates",
+            params={"offset": offset, "timeout": 5},
+            timeout=20,
+        )
+        try:
+            data = r.json()
+        except ValueError:
+            raise RuntimeError(f"HTTP {r.status_code}, non-JSON reply: {r.text[:80]!r}")
+        if not data.get("ok"):
+            raise RuntimeError(f"HTTP {r.status_code}: {data.get('description')}")
+        if fail_since is not None:
+            secs = int(time.time() - fail_since)
+            print(f"{datetime.now():%H:%M:%S} telegram reachable again after {secs}s")
+            fail_since = None
+        return data["result"]
+    except (requests.RequestException, RuntimeError) as e:
+        if fail_since is None:
+            fail_since = time.time()
+        print(f"{datetime.now():%H:%M:%S} getUpdates failed: {type(e).__name__}: {e}")
+        time.sleep(5)
+        return []
 
 
 print("Bot running. Press Ctrl+C to stop.")
@@ -62,7 +96,7 @@ while True:
             continue
 
         if text.startswith("/"):
-            send("Unknown command. I know /list and /cancel <id>.")
+            send("Unknown command. I know /list, /today and /cancel <id>.")
             continue
 
         try:
@@ -71,13 +105,10 @@ while True:
             print("agent failed:", e)
             send("Sorry, the AI call failed. Try again in a minute.")
 
-
-
-
     for rid, reminder_text in due_reminders():
-        send(reminder_text)
-        mark_sent(rid)
+        if send(reminder_text):
+            mark_sent(rid)
 
     if briefing_due():
-        send(build_briefing())
-        mark_briefing_done()
+        if send(build_briefing()):
+            mark_briefing_done()
