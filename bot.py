@@ -4,6 +4,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from db import due_reminders, mark_sent, list_events, cancel_event
 from agent import handle_message
+from briefing import build_briefing, briefing_due, mark_briefing_done
 
 load_dotenv()
 TOKEN = os.environ["TELEGRAM_TOKEN"]
@@ -56,6 +57,10 @@ while True:
                 send("Usage: /cancel <id>")
             continue
 
+        if text.startswith("/today"):
+            send(build_briefing())
+            continue
+
         if text.startswith("/"):
             send("Unknown command. I know /list and /cancel <id>.")
             continue
@@ -66,6 +71,13 @@ while True:
             print("agent failed:", e)
             send("Sorry, the AI call failed. Try again in a minute.")
 
+
+
+
     for rid, reminder_text in due_reminders():
         send(reminder_text)
         mark_sent(rid)
+
+    if briefing_due():
+        send(build_briefing())
+        mark_briefing_done()

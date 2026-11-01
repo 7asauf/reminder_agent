@@ -89,3 +89,31 @@ def reschedule_event(event_id, new_when):
     cancel_event(event_id)
     title, location, notes = row
     return save_event({"title": title, "when": new_when, "location": location, "notes": notes})
+
+
+
+db.execute("CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY, value TEXT)")
+db.commit()
+
+
+def get_state(key):
+    row = db.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_state(key, value):
+    db.execute(
+        "INSERT INTO state(key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    db.commit()
+
+
+def events_on(day):
+    # day looks like "2026-11-02"
+    return db.execute(
+        "SELECT id, title, when_at, location FROM events "
+        "WHERE substr(when_at, 1, 10) = ? ORDER BY when_at",
+        (day,),
+    ).fetchall()
