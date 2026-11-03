@@ -129,3 +129,44 @@ def find_duplicate(title, when):
         "SELECT id FROM events WHERE when_at = ? AND lower(title) = lower(?)",
         (when, title.strip()),
     ).fetchone()
+
+db.execute("CREATE TABLE IF NOT EXISTS chat(id INTEGER PRIMARY KEY, role TEXT, text TEXT, at TEXT)")
+db.commit()
+
+
+def save_turn(role, text):
+    db.execute(
+        "INSERT INTO chat(role, text, at) VALUES (?, ?, ?)",
+        (role, text, datetime.now(TZ).strftime("%Y-%m-%dT%H:%M:%S")),
+    )
+    db.execute("DELETE FROM chat WHERE id NOT IN (SELECT id FROM chat ORDER BY id DESC LIMIT 200)")
+    db.commit()
+
+
+def recent_turns(n=12, hours=6):
+    cutoff = (datetime.now(TZ) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
+    rows = db.execute(
+        "SELECT role, text FROM chat WHERE at >= ? ORDER BY id DESC LIMIT ?",
+        (cutoff, n),
+    ).fetchall()
+    rows.reverse()  # oldest first
+    while rows and rows[0][0] != "user":
+        rows.pop(0)  # the model needs the history to start with a user turn
+    return rows
+
+
+def upcoming_reminders():
+    now = datetime.now(TZ).strftime("%Y-%m-%dT%H:%M")
+    return db.execute(
+        """SELECT e.id, e.title, r.remind_at
+           FROM reminders r JOIN events e ON e.id = r.event_id
+           WHERE r.sent = 0 AND r.remind_at >= ?
+           ORDER BY r.remind_at""",
+        (now,),
+    ).fetchall()
+
+
+def get_event(event_id):
+    return db.execute(
+        "SELECT title, when_at FROM events WHERE id = ?", (event_id,)
+    ).fetchone()

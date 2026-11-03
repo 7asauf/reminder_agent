@@ -4,8 +4,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from db import save_event, list_events, cancel_event, reschedule_event
-from db import find_duplicate
+from db import save_event, list_events, cancel_event, reschedule_event, upcoming_reminders, get_event, find_duplicate, save_turn, recent_turns
 
 load_dotenv()
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -121,7 +120,17 @@ Rules:
 
 
 # ---- Short-term memory: the last few plain-text turns ----
-memory = []
+memory = [
+    types.Content(role=role, parts=[types.Part(text=text)])
+    for role, text in recent_turns()
+]
+
+def remember(text, reply):
+    memory.append(types.Content(role="user", parts=[types.Part(text=text)]))
+    memory.append(types.Content(role="model", parts=[types.Part(text=reply)]))
+    del memory[:-24]  # keep RAM small; only the last 12 are used anyway
+    save_turn("user", text)
+    save_turn("model", reply)
 
 
 def handle_message(text):
