@@ -170,3 +170,43 @@ def get_event(event_id):
     return db.execute(
         "SELECT title, when_at FROM events WHERE id = ?", (event_id,)
     ).fetchone()
+
+
+db.execute("""CREATE TABLE IF NOT EXISTS class_changes(
+    id INTEGER PRIMARY KEY,
+    day TEXT, course TEXT, kind TEXT,
+    new_start TEXT, new_end TEXT, new_room TEXT)""")
+db.commit()
+
+
+def add_class_change(day, course, kind, new_start=None, new_end=None, new_room=None):
+    # a newer change for the same class on the same day replaces the older one
+    db.execute("DELETE FROM class_changes WHERE day = ? AND course = ?", (day, course))
+    cur = db.execute(
+        "INSERT INTO class_changes(day, course, kind, new_start, new_end, new_room) VALUES (?, ?, ?, ?, ?, ?)",
+        (day, course, kind, new_start, new_end, new_room),
+    )
+    db.commit()
+    return cur.lastrowid
+
+
+def changes_on(day):
+    return db.execute(
+        "SELECT id, course, kind, new_start, new_end, new_room FROM class_changes WHERE day = ?",
+        (day,),
+    ).fetchall()
+
+
+def upcoming_class_changes():
+    today = datetime.now(TZ).date().isoformat()
+    return db.execute(
+        "SELECT id, day, course, kind, new_start, new_end, new_room "
+        "FROM class_changes WHERE day >= ? ORDER BY day, id",
+        (today,),
+    ).fetchall()
+
+
+def remove_class_change(change_id):
+    cur = db.execute("DELETE FROM class_changes WHERE id = ?", (change_id,))
+    db.commit()
+    return cur.rowcount > 0
